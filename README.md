@@ -37,6 +37,32 @@ The backend provides two routes:
 The example response lets us build and test the frontend flow without an AI
 account, API key, database, or external dependency.
 
+## Local Chrome extension
+
+The `extension/` folder contains a minimal Chrome extension. Its popup has a
+**Check Backend** button, which calls the local `GET /health` endpoint, and an
+**Analyze Test Article** button, which sends a fixed sample article to
+`POST /api/analyze`. **Analyze Current Page** extracts the title and main text
+from the active tab, then sends it to the same endpoint. It first looks for an
+`article` element, falls back to `main`, and finally uses the page body while
+removing common navigation and footer elements.
+
+To load it in Chrome:
+
+1. Keep the backend running with `npm start`.
+2. Open `chrome://extensions`.
+3. Enable **Developer mode**.
+4. Select **Load unpacked**.
+5. Choose this project's `extension` folder.
+6. Click the extension's toolbar icon, then select **Check Backend**.
+
+The popup should display **Backend connected.** If it cannot, confirm that the
+backend terminal still says it is listening on port 3000.
+
+To try page extraction, open a regular news article, open the extension popup,
+and choose **Analyze Current Page**. Chrome cannot inject scripts into pages
+such as `chrome://extensions`, the Chrome Web Store, or browser new-tab pages.
+
 ## Requirements
 
 Install [Node.js](https://nodejs.org/) 18 or newer. No `npm install` is needed
