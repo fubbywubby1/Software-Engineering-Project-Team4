@@ -1,100 +1,138 @@
 # AI Article Bias Analyzer
 
-This project will begin with one small, working backend. The browser extension
-and AI integration come later.
+A local-first Chrome extension prototype that reads the current article page,
+sends its title and text to a small backend, and displays the backend response.
 
-## The bigger picture
+The long-term goal is an explainable AI tool that helps readers notice framing,
+loaded language, emotional language, and viewpoint balance. It should describe
+evidence from an article, not claim to prove an author's intent or label a
+publication as objectively biased.
 
-The finished product will help a reader understand how a news article is
-framed. They will open an article, click an extension button, and receive a
-plain-language explanation of patterns such as emotionally charged wording,
-loaded language, and whether different viewpoints appear represented.
+## Current status
 
-There are three parts that work together:
+The first end-to-end local flow is working:
 
 ```text
-News article → Chrome extension → Backend → Analysis result → Extension display
+Open article in Chrome
+  -> Extension extracts title and page text
+  -> Local backend receives the article
+  -> Extension displays the backend result
 ```
 
-- The **Chrome extension** will read the article currently open in the browser
-  and show the result to the user.
-- The **backend** receives that article text, protects any future AI API key,
-  and sends a consistent response back to the extension.
-- The **AI analysis** will be added later. It will replace the current example
-  response with findings and short explanations grounded in the article text.
+The backend currently returns a fixed placeholder analysis. It does not yet
+call an AI model, store data, or perform real bias analysis.
 
-Starting with the backend lets us prove that the middle of this flow works
-before adding the browser interface or AI service. Each later step changes only
-one piece of the flow, which keeps the project easy to understand and debug.
+## What each part does
 
-## What works first
-
-The backend provides two routes:
-
-- `GET /health` confirms the server is running.
-- `POST /api/analyze` accepts article text and returns a fixed example analysis.
-
-The example response lets us build and test the frontend flow without an AI
-account, API key, database, or external dependency.
-
-## Local Chrome extension
-
-The `extension/` folder contains a minimal Chrome extension. Its popup has a
-**Check Backend** button, which calls the local `GET /health` endpoint, and an
-**Analyze Test Article** button, which sends a fixed sample article to
-`POST /api/analyze`. **Analyze Current Page** extracts the title and main text
-from the active tab, then sends it to the same endpoint. It first looks for an
-`article` element, falls back to `main`, and finally uses the page body while
-removing common navigation and footer elements.
-
-To load it in Chrome:
-
-1. Keep the backend running with `npm start`.
-2. Open `chrome://extensions`.
-3. Enable **Developer mode**.
-4. Select **Load unpacked**.
-5. Choose this project's `extension` folder.
-6. Click the extension's toolbar icon, then select **Check Backend**.
-
-The popup should display **Backend connected.** If it cannot, confirm that the
-backend terminal still says it is listening on port 3000.
-
-To try page extraction, open a regular news article, open the extension popup,
-and choose **Analyze Current Page**. Chrome cannot inject scripts into pages
-such as `chrome://extensions`, the Chrome Web Store, or browser new-tab pages.
+| Part | Responsibility |
+| --- | --- |
+| `extension/` | Chrome Manifest V3 extension with a popup UI. |
+| `extension/popup.js` | Checks the backend, extracts active-page text, sends requests, and displays results. |
+| `backend/server.js` | Local HTTP API that validates article text and returns a JSON response. |
+| `package.json` | Defines the command that starts the backend. |
 
 ## Requirements
 
-Install [Node.js](https://nodejs.org/) 18 or newer. No `npm install` is needed
-for this first backend because it uses Node's built-in HTTP module.
+- Google Chrome
+- Node.js 18 or newer, including npm
 
-## Run the backend
-
-From the project root:
+Verify Node.js and npm after installation:
 
 ```powershell
+node --version
+npm --version
+```
+
+No `npm install` is required yet. The backend uses only Node.js built-in
+modules, so there are no external dependencies.
+
+## Quick start
+
+### 1. Start the backend
+
+Open PowerShell in the project root:
+
+```powershell
+Set-Location 'C:\Users\Ckrog\git\Software-Engineering-Project-Team4-1'
 npm start
 ```
 
-The server starts at `http://localhost:3000`.
+Keep this terminal open. A successful start prints:
 
-Check it in a browser or PowerShell:
+```text
+Backend listening on http://localhost:3000
+```
+
+In a second terminal, confirm the server is available:
 
 ```powershell
 Invoke-RestMethod http://localhost:3000/health
 ```
 
-Send a test article:
+Expected result:
 
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://localhost:3000/api/analyze `
-  -ContentType 'application/json' `
-  -Body '{"article":{"title":"Example story","text":"This is a short example article with enough text to test the request."}}'
+```text
+status
+------
+ok
 ```
 
-## Request format
+### 2. Load the local extension
+
+1. Open `chrome://extensions` in Chrome.
+2. Turn on **Developer mode**.
+3. Select **Load unpacked**.
+4. Select this repository's `extension` folder.
+5. Pin the extension if you want its icon visible in the toolbar.
+
+Whenever files inside `extension/` change, return to `chrome://extensions` and
+click the extension card's reload icon before testing again.
+
+### 3. Test the connection
+
+1. Click the extension icon.
+2. Select **Check Backend**.
+3. Confirm the popup says **Backend connected.**
+
+### 4. Test article extraction
+
+1. Open a regular public news article in a browser tab.
+2. Open the extension popup.
+3. Select **Analyze Current Page**.
+4. Confirm the popup shows the extracted title, character count, and the
+   placeholder result.
+
+The extension first uses an `article` element, then `main`, then the page body.
+Before extracting text, it removes common non-article elements such as headers,
+navigation, footers, sidebars, forms, and scripts. This is intentionally a
+simple starting point and will not be perfect on every publication.
+
+Chrome blocks script injection on protected pages, including `chrome://` pages,
+the Chrome Web Store, and new-tab pages. Test with a normal website instead.
+
+## Extension actions
+
+| Popup button | What it verifies |
+| --- | --- |
+| **Check Backend** | The local `GET /health` route can be reached. |
+| **Analyze Test Article** | The extension can send a fixed sample article to the backend. |
+| **Analyze Current Page** | Article extraction and the backend request work together. |
+
+## Backend API
+
+### `GET /health`
+
+Returns a small status response that confirms the server is running.
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### `POST /api/analyze`
+
+Accepts an article title and text:
 
 ```json
 {
@@ -105,10 +143,8 @@ Invoke-RestMethod `
 }
 ```
 
-`article.text` is required and must be a non-empty string. The current server
-does not analyze the content. It returns a schema-stable placeholder result.
-
-## Response format
+`article.text` is required and must contain non-empty text. The current
+placeholder response is:
 
 ```json
 {
@@ -121,11 +157,39 @@ does not analyze the content. It returns a schema-stable placeholder result.
 }
 ```
 
-## Next small steps
+You can test the route without Chrome:
 
-1. Add a Chrome popup with one button.
-2. Send a hard-coded test article to this backend.
-3. Extract text from the active page.
-4. Replace the placeholder response with an AI call.
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://localhost:3000/api/analyze `
+  -ContentType 'application/json' `
+  -Body '{"article":{"title":"Test article","text":"This is a short test article."}}'
+```
 
-Keeping each step independently working makes bugs much easier to find.
+## Project structure
+
+```text
+.
+|-- backend/
+|   `-- server.js          Local HTTP backend
+|-- extension/
+|   |-- manifest.json      Chrome extension configuration
+|   |-- popup.html         Popup structure
+|   |-- popup.css          Popup styling
+|   `-- popup.js           Popup behavior and page extraction
+|-- package.json           npm start command
+`-- README.md
+```
+
+## Next steps
+
+1. Improve extraction quality for pages that do not use standard article HTML.
+2. Add article metadata such as publication, author, URL, and date.
+3. Replace the fixed backend response with structured AI analysis.
+4. Add clear loading, error, and analysis-result visuals.
+5. Deploy the backend over HTTPS before distributing the extension to users.
+
+For users, the final product should require only the published Chrome
+extension. Node.js and the local backend are development tools, not something
+end users should install or run.
