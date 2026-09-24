@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Article Bias Analyzer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Article Analyzer</h1>
+      <p>Check whether the local backend is running.</p>
+      <button id="check-backend" type="button">Check Backend</button>
+      <button id="analyze-test-article" type="button">Analyze Test Article</button>
+      <button id="analyze-current-page" type="button">Analyze Current Page</button>
+      <p id="status" aria-live="polite">Not checked yet.</p>
+      <section id="analysis" hidden>
+        <h2>Analysis Result</h2>
+        <p><strong>Framing:</strong> <span id="framing"></span></p>
+        <p><strong>Article:</strong> <span id="article-title"></span></p>
+        <p><strong>Text collected:</strong> <span id="character-count"></span> characters</p>
+        <p id="summary"></p>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

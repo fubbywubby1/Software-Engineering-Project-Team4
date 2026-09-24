@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "AI Article Bias Analyzer",
+  "description": "Checks the local AI Article Bias Analyzer backend.",
+  "version": "0.1.0",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AI Article Bias Analyzer"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*"
+  ]
+}
