@@ -91,10 +91,21 @@ function extractArticleFromPage() {
 
 // Display the shared backend response format for either a test or real page.
 function showAnalysis(result) {
-  framing.textContent = result.overallFraming;
-  articleTitle.textContent = result.article.title || "Untitled article";
-  characterCount.textContent = result.article.characterCount;
+  const overall = result.results.overallBias;
+
+  framing.textContent =
+    overall.score === null
+      ? "Not available"
+      : `${overall.score}%`;
+
+  articleTitle.textContent =
+    result.article.title || "Untitled article";
+
+  characterCount.textContent =
+    result.article.characterCount;
+
   summary.textContent = result.summary;
+
   analysis.hidden = false;
 }
 
