@@ -1,3 +1,6 @@
+
+const { analyzeArticle } = require("./modelClient");
+
 // Node's built-in HTTP module keeps this first backend dependency-free.
 const http = require("node:http");
 
@@ -80,14 +83,12 @@ const server = http.createServer(async (request, response) => {
       }
 
       // This predictable placeholder lets the extension be built without AI setup.
-      sendJson(response, 200, {
-        overallFraming: "not_analyzed",
-        summary: "AI analysis has not been connected yet.",
-        article: {
-          title: typeof article.title === "string" ? article.title.trim() : null,
-          characterCount: text.trim().length,
-        },
+      const result = await analyzeArticle({
+        title: article.title,
+        text: text.trim()
       });
+
+      sendJson(response, 200, result);
     } catch (error) {
       sendJson(response, 400, { error: error.message });
     }
