@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "node backend/server.js"
+    "start": "node backend/server.js",
+    "test": "node --test backend/inference.test.js"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.1"
   }
 }

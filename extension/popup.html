@@ -16,10 +16,15 @@
       <p id="status" aria-live="polite">Not checked yet.</p>
       <section id="analysis" hidden>
         <h2>Analysis Result</h2>
-        <p><strong>Framing:</strong> <span id="framing"></span></p>
+        <p><strong>Bias score:</strong> <span id="framing"></span></p>
         <p><strong>Article:</strong> <span id="article-title"></span></p>
         <p><strong>Text collected:</strong> <span id="character-count"></span> characters</p>
         <p id="summary"></p>
+        <div id="flagged-section" hidden>
+          <h3>Most biased sentences</h3>
+          <ol id="flagged-list"></ol>
+        </div>
+        <p class="note">Results are estimates from an AI model trained on US political news. They describe the wording, not the author's intent.</p>
       </section>
     </main>
     <script src="popup.js"></script>

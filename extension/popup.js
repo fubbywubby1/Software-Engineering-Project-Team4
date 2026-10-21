@@ -11,11 +11,15 @@ const framing = document.querySelector("#framing");
 const articleTitle = document.querySelector("#article-title");
 const characterCount = document.querySelector("#character-count");
 const summary = document.querySelector("#summary");
+const flaggedSection = document.querySelector("#flagged-section");
+const flaggedList = document.querySelector("#flagged-list");
 
 // A temporary article proves the analysis request works before page extraction exists.
 const TEST_ARTICLE = {
   title: "Test Article",
-  text: "This is a short test article sent from the local Chrome extension.",
+  text: "The city council approved the new budget on Tuesday after a two-hour meeting. "
+    + "Critics called the plan a reckless giveaway that will bankrupt hardworking families. "
+    + "The budget includes funding for road repairs and two new public libraries.",
 };
 
 // Call the backend and show a simple success or failure message in the popup.
@@ -96,7 +100,7 @@ function showAnalysis(result) {
   framing.textContent =
     overall.score === null
       ? "Not available"
-      : `${overall.score}%`;
+      : `${overall.score} / 100 (${overall.label})`;
 
   articleTitle.textContent =
     result.article.title || "Untitled article";
@@ -105,6 +109,18 @@ function showAnalysis(result) {
     result.article.characterCount;
 
   summary.textContent = result.summary;
+
+  // Show the sentences the model is most confident are biased.
+  const passages = result.results.flaggedPassages || [];
+  flaggedList.replaceChildren(...passages.map((passage) => {
+    const item = document.createElement("li");
+    const probability = document.createElement("span");
+    probability.className = "probability";
+    probability.textContent = ` (${passage.biasScore}% likely biased)`;
+    item.append(passage.text, probability);
+    return item;
+  }));
+  flaggedSection.hidden = passages.length === 0;
 
   analysis.hidden = false;
 }
