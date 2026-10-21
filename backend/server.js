@@ -1,5 +1,5 @@
-
 const { analyzeArticle } = require("./modelClient");
+const { loadClassifier } = require("./inference");
 
 // Node's built-in HTTP module keeps this first backend dependency-free.
 const http = require("node:http");
@@ -67,10 +67,17 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
-  // Accept an article and return a temporary response until AI is connected.
+  // Accept an article and return the model's bias analysis.
   if (method === "POST" && url.pathname === "/api/analyze") {
+    let payload;
     try {
-      const payload = await readJson(request);
+      payload = await readJson(request);
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+      return;
+    }
+
+    try {
       const article = payload?.article;
       const text = article?.text;
 
@@ -82,7 +89,6 @@ const server = http.createServer(async (request, response) => {
         return;
       }
 
-      // This predictable placeholder lets the extension be built without AI setup.
       const result = await analyzeArticle({
         title: article.title,
         text: text.trim()
@@ -90,7 +96,9 @@ const server = http.createServer(async (request, response) => {
 
       sendJson(response, 200, result);
     } catch (error) {
-      sendJson(response, 400, { error: error.message });
+      // Report a model failure instead of returning a made-up result.
+      console.error("Analysis failed:", error);
+      sendJson(response, 503, { error: "The bias model is not available. Check the server log." });
     }
     return;
   }
@@ -102,4 +110,11 @@ const server = http.createServer(async (request, response) => {
 // Begin accepting requests and show the local URL in the terminal.
 server.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
+
+  // Load the model now so the first analysis does not have to wait for it.
+  if (process.env.MOCK_MODEL !== "1") {
+    loadClassifier()
+      .then(() => console.log("Bias model loaded."))
+      .catch((error) => console.error("Could not load the bias model:", error.message));
+  }
 });

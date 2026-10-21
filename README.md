@@ -19,8 +19,17 @@ Open article in Chrome
   -> Extension displays the backend result
 ```
 
-The backend currently returns a fixed placeholder analysis. It does not yet
-call an AI model, store data, or perform real bias analysis.
+The backend now runs a real bias model. It splits the article into sentences,
+asks a fine-tuned DistilRoBERTa model whether each sentence uses biased
+language, and reports the share of flagged sentences as a 0 to 100 score
+(under 15 Low, 15 to 35 Moderate, over 35 High) plus the three most biased
+sentences.
+
+The model was trained on the BABE dataset (about 3,700 expert-labeled news
+sentences). On held-out test sentences the int8 ONNX model the server runs
+scores 79.8% accuracy and 0.79 F1, compared with 75.8% for a TF-IDF baseline.
+It reflects what BABE's annotators judged biased in mostly US political news,
+so results on other topics are less reliable.
 
 ## What each part does
 
@@ -29,6 +38,9 @@ call an AI model, store data, or perform real bias analysis.
 | `extension/` | Chrome Manifest V3 extension with a popup UI. |
 | `extension/popup.js` | Checks the backend, extracts active-page text, sends requests, and displays results. |
 | `backend/server.js` | Local HTTP API that validates article text and returns a JSON response. |
+| `backend/modelClient.js` | Builds the shared response format from the model's results. |
+| `backend/inference.js` | Loads the model, splits sentences, classifies them, and computes the score. |
+| `backend/models/` | The trained model files. Not in Git; see "Set up the model". |
 | `package.json` | Defines the command that starts the backend. |
 
 ## Requirements
@@ -43,10 +55,32 @@ node --version
 npm --version
 ```
 
-No `npm install` is required yet. The backend uses only Node.js built-in
-modules, so there are no external dependencies.
+Install the backend's one dependency, `@huggingface/transformers`, which runs
+the model:
+
+```powershell
+npm install
+```
 
 ## Quick start
+
+### 0. Set up the model
+
+The model files (about 80 MB) are not stored in Git. Get `bias-model.zip`
+from the team's shared drive, or train it yourself with the Colab notebook,
+then unzip it so the files land here:
+
+```text
+backend/models/bias-model/
+|-- config.json
+|-- tokenizer.json
+|-- tokenizer_config.json
+`-- onnx/
+    `-- model_quantized.onnx
+```
+
+To work on the extension without the model, start the backend with
+`$env:MOCK_MODEL = "1"` set first. It then returns a fixed sample result.
 
 ### 1. Start the backend
 
@@ -61,7 +95,10 @@ Keep this terminal open. A successful start prints:
 
 ```text
 Backend listening on http://localhost:3000
+Bias model loaded.
 ```
+
+If it prints `Could not load the bias model`, check step 0.
 
 In a second terminal, confirm the server is available:
 
@@ -99,8 +136,8 @@ click the extension card's reload icon before testing again.
 1. Open a regular public news article in a browser tab.
 2. Open the extension popup.
 3. Select **Analyze Current Page**.
-4. Confirm the popup shows the extracted title, character count, and the
-   placeholder result.
+4. Confirm the popup shows the bias score, the extracted title, the character
+   count, and the most biased sentences.
 
 The extension first uses an `article` element, then `main`, then the page body.
 Before extracting text, it removes common non-article elements such as headers,
@@ -143,19 +180,38 @@ Accepts an article title and text:
 }
 ```
 
-`article.text` is required and must contain non-empty text. The current
-placeholder response is:
+`article.text` is required and must contain non-empty text. A response looks
+like this:
 
 ```json
 {
-  "overallFraming": "not_analyzed",
-  "summary": "AI analysis has not been connected yet.",
-  "article": {
-    "title": "Example story",
-    "characterCount": 68
-  }
+  "schemaVersion": "1.0",
+  "analysisId": "3f1c...",
+  "status": "completed",
+  "model": { "name": "distilroberta-babe", "version": "1.0.0" },
+  "article": { "title": "Example story", "characterCount": 2450 },
+  "results": {
+    "overallBias": { "score": 40, "label": "High", "confidence": null },
+    "politicalLean": null,
+    "biasTypes": [],
+    "sentenceCount": 20,
+    "flaggedCount": 8,
+    "flaggedPassages": [
+      {
+        "text": "Critics called the plan a reckless giveaway.",
+        "startOffset": 128,
+        "endOffset": 172,
+        "biasScore": 91
+      }
+    ]
+  },
+  "summary": "8 of 20 sentences use language the model flags as biased. Results are estimates, not proof of intent."
 }
 ```
+
+`politicalLean` and `biasTypes` stay empty for now because the current model
+only detects biased wording. If the model cannot be loaded the route returns
+`503` with an error instead of a made-up result.
 
 You can test the route without Chrome:
 
@@ -172,21 +228,34 @@ Invoke-RestMethod `
 ```text
 .
 |-- backend/
-|   `-- server.js          Local HTTP backend
+|   |-- server.js          Local HTTP backend
+|   |-- modelClient.js     Builds the API response
+|   |-- inference.js       Runs the bias model
+|   |-- inference.test.js  Unit tests (npm test)
+|   `-- models/            Trained model files (not in Git)
 |-- extension/
 |   |-- manifest.json      Chrome extension configuration
 |   |-- popup.html         Popup structure
 |   |-- popup.css          Popup styling
 |   `-- popup.js           Popup behavior and page extraction
-|-- package.json           npm start command
+|-- package.json           npm start and npm test commands
 `-- README.md
 ```
+
+## Tests
+
+```powershell
+npm test
+```
+
+The scoring and sentence-splitting tests always run. The test that runs the
+real model is skipped unless `backend/models/bias-model` is present.
 
 ## Next steps
 
 1. Improve extraction quality for pages that do not use standard article HTML.
 2. Add article metadata such as publication, author, URL, and date.
-3. Replace the fixed backend response with structured AI analysis.
+3. Package the model into a Docker image and deploy the backend to Azure.
 4. Add clear loading, error, and analysis-result visuals.
 5. Deploy the backend over HTTPS before distributing the extension to users.
 
