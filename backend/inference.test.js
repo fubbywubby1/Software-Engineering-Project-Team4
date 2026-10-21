@@ -20,6 +20,22 @@ test("splitSentences drops short fragments", () => {
   assert.deepEqual(splitSentences("Home. Sports. Weather. Sign in."), []);
 });
 
+test("splitSentences keeps separate lines apart and skips run-on blocks", () => {
+  const headlines = Array.from({ length: 15 }, (_, i) => `Headline number ${i} about the news today`).join(" ");
+  const text = "Officials said the storm knocked out power to many homes\n"
+    + "Read more stories like this from our team\n"
+    + headlines;
+  const sentences = splitSentences(text);
+
+  assert.deepEqual(sentences.map((s) => s.text), [
+    "Officials said the storm knocked out power to many homes",
+    "Read more stories like this from our team",
+  ]);
+  for (const sentence of sentences) {
+    assert.equal(text.slice(sentence.startOffset, sentence.endOffset), sentence.text);
+  }
+});
+
 test("labelForScore uses the plan's thresholds", () => {
   assert.equal(labelForScore(0), "Low");
   assert.equal(labelForScore(14), "Low");

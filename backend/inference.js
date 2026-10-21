@@ -6,6 +6,8 @@ const MODEL_NAME = "bias-model";
 
 // Sentences shorter than this are usually headings, captions, or leftover page text.
 const MIN_WORDS = 6;
+// Longer "sentences" are usually run-together headline lists, menus, or ads, not article prose.
+const MAX_WORDS = 60;
 // Cap the work per request so one very long page cannot use up the server's CPU.
 const MAX_SENTENCES = 200;
 // A sentence counts as biased when the model's BIASED probability reaches this value.
@@ -33,17 +35,23 @@ function loadClassifier() {
 }
 
 // Split article text into sentences and remember where each one starts and ends.
+// Each line is split on its own, so separate headlines or links never merge into one sentence.
 function splitSentences(text) {
   const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
   const sentences = [];
+  const linePattern = /[^\n]+/g;
+  let line;
 
-  for (const { segment, index } of segmenter.segment(text)) {
-    const trimmed = segment.trim();
-    if (trimmed.split(/\s+/).length < MIN_WORDS) {
-      continue;
+  while ((line = linePattern.exec(text)) !== null) {
+    for (const { segment, index } of segmenter.segment(line[0])) {
+      const trimmed = segment.trim();
+      const wordCount = trimmed.split(/\s+/).length;
+      if (wordCount < MIN_WORDS || wordCount > MAX_WORDS) {
+        continue;
+      }
+      const startOffset = line.index + index + segment.indexOf(trimmed);
+      sentences.push({ text: trimmed, startOffset, endOffset: startOffset + trimmed.length });
     }
-    const startOffset = index + segment.indexOf(trimmed);
-    sentences.push({ text: trimmed, startOffset, endOffset: startOffset + trimmed.length });
   }
 
   return sentences.slice(0, MAX_SENTENCES);

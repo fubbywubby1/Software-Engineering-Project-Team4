@@ -89,7 +89,11 @@ function extractArticleFromPage() {
     element.remove();
   });
 
-  const text = copy.innerText.replace(/\s+/g, " ").trim();
+  // Keep line breaks so separate headlines and links are not merged into one sentence.
+  const text = copy.innerText
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n[\s]*/g, "\n")
+    .trim();
   return { title, text };
 }
 
