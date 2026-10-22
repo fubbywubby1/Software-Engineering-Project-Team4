@@ -1,9 +1,7 @@
-// The local server started with `npm start`.
-const HEALTH_URL = "http://localhost:3000/health";
-const ANALYZE_URL = "http://localhost:3000/api/analyze";
+// Endpoint paths are added by endpoint(). The extension uses the deployed API only.
+const BACKEND_BASE_URL = "https://ai-bias-backend-bghjdsckdshzccg6.germanywestcentral-01.azurewebsites.net";
 
 const button = document.querySelector("#check-backend");
-const analyzeButton = document.querySelector("#analyze-test-article");
 const analyzeCurrentPageButton = document.querySelector("#analyze-current-page");
 const status = document.querySelector("#status");
 const analysis = document.querySelector("#analysis");
@@ -14,13 +12,9 @@ const summary = document.querySelector("#summary");
 const flaggedSection = document.querySelector("#flagged-section");
 const flaggedList = document.querySelector("#flagged-list");
 
-// A temporary article proves the analysis request works before page extraction exists.
-const TEST_ARTICLE = {
-  title: "Test Article",
-  text: "The city council approved the new budget on Tuesday after a two-hour meeting. "
-    + "Critics called the plan a reckless giveaway that will bankrupt hardworking families. "
-    + "The budget includes funding for road repairs and two new public libraries.",
-};
+function endpoint(path) {
+  return `${BACKEND_BASE_URL}${path}`;
+}
 
 // Call the backend and show a simple success or failure message in the popup.
 async function checkBackend() {
@@ -28,7 +22,7 @@ async function checkBackend() {
   status.textContent = "Checking backend…";
 
   try {
-    const response = await fetch(HEALTH_URL);
+    const response = await fetch(endpoint("/health"));
 
     if (!response.ok) {
       throw new Error(`Server returned ${response.status}.`);
@@ -39,42 +33,13 @@ async function checkBackend() {
       ? "Backend connected."
       : "Backend returned an unexpected response.";
   } catch {
-    status.textContent = "Could not reach the backend. Start it with npm start.";
+    status.textContent = "Could not reach the hosted backend.";
   } finally {
     button.disabled = false;
   }
 }
 
 button.addEventListener("click", checkBackend);
-
-// Send the temporary article to the backend and display its response.
-async function analyzeTestArticle() {
-  analyzeButton.disabled = true;
-  analysis.hidden = true;
-  status.textContent = "Sending test article…";
-
-  try {
-    const response = await fetch(ANALYZE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ article: TEST_ARTICLE }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Server returned ${response.status}.`);
-    }
-
-    const result = await response.json();
-    showAnalysis(result);
-    status.textContent = "Test article analyzed.";
-  } catch {
-    status.textContent = "Could not analyze the test article. Is the backend running?";
-  } finally {
-    analyzeButton.disabled = false;
-  }
-}
-
-analyzeButton.addEventListener("click", analyzeTestArticle);
 
 // This function runs inside the current web page, not inside the extension popup.
 function extractArticleFromPage() {
@@ -173,7 +138,7 @@ async function analyzeCurrentPage() {
     }
 
     status.textContent = "Sending article to backend…";
-    const response = await fetch(ANALYZE_URL, {
+    const response = await fetch(endpoint("/api/analyze"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ article }),
