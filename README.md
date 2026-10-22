@@ -1,7 +1,8 @@
 # AI Article Bias Analyzer
 
-A local-first Chrome extension prototype that reads the current article page,
-sends its title and text to a small backend, and displays the backend response.
+A Chrome extension prototype that reads the current article page, sends its
+title and text to a backend, and displays the backend response. The backend can
+run locally or as the project's Docker container in Azure App Service.
 
 The long-term goal is an explainable AI tool that helps readers notice framing,
 loaded language, emotional language, and viewpoint balance. It should describe
@@ -10,13 +11,20 @@ publication as objectively biased.
 
 ## Current status
 
-The first end-to-end local flow is working:
+The extension's hosted end-to-end flow is working:
 
 ```text
 Open article in Chrome
   -> Extension extracts title and page text
-  -> Local backend receives the article
+  -> Azure App Service backend receives the article
   -> Extension displays the backend result
+```
+
+The backend has also been packaged as a Docker image, pushed to Docker Hub, and
+deployed to Azure App Service. Its hosted health endpoint is available at:
+
+```text
+https://ai-bias-backend-bghjdsckdshzccg6.germanywestcentral-01.azurewebsites.net/health
 ```
 
 The backend now runs a real bias model. It splits the article into sentences,
@@ -40,13 +48,15 @@ so results on other topics are less reliable.
 | `backend/server.js` | Local HTTP API that validates article text and returns a JSON response. |
 | `backend/modelClient.js` | Builds the shared response format from the model's results. |
 | `backend/inference.js` | Loads the model, splits sentences, classifies them, and computes the score. |
-| `backend/models/` | The trained model files. Not in Git; see "Set up the model". |
+| `backend/models/` | The trained ONNX model files used by the backend. |
+| `backend/Dockerfile` | Packages the backend and model into the deployable Docker image. |
 | `package.json` | Defines the command that starts the backend. |
 
 ## Requirements
 
 - Google Chrome
 - Node.js 18 or newer, including npm
+- Docker Desktop with the Linux/WSL 2 engine, only for building or running the container
 
 Verify Node.js and npm after installation:
 
@@ -64,11 +74,10 @@ npm install
 
 ## Quick start
 
-### 0. Set up the model
+### 0. Verify the model
 
-The model files (about 80 MB) are not stored in Git. Get `bias-model.zip`
-from the team's shared drive, or train it yourself with the Colab notebook,
-then unzip it so the files land here:
+The model files are included on the `model-inference` branch. Verify that this
+folder exists after cloning the repository:
 
 ```text
 backend/models/bias-model/
@@ -79,10 +88,16 @@ backend/models/bias-model/
     `-- model_quantized.onnx
 ```
 
-To work on the extension without the model, start the backend with
-`$env:MOCK_MODEL = "1"` set first. It then returns a fixed sample result.
+If the folder is missing, obtain the team's `bias-model.zip` or regenerate the
+model with the team Colab notebook before running real inference.
 
-### 1. Start the backend
+To work on the extension without model inference, set `MOCK_MODEL=1` before
+starting the server. It then returns a fixed sample result.
+
+### 1. Start the backend locally (development only)
+
+Use the local server for backend development, API testing, or building the
+Docker image. The Chrome extension itself uses the hosted Azure backend.
 
 Open PowerShell in the project root:
 
@@ -114,7 +129,27 @@ status
 ok
 ```
 
-### 2. Load the local extension
+### 2. Run the backend in Docker (development only)
+
+Build from the repository root:
+
+```bash
+docker build -f backend/Dockerfile -t ai-bias-backend:local .
+```
+
+Run the image locally:
+
+```bash
+docker run --rm -p 3000:3000 ai-bias-backend:local
+```
+
+The same health check should return `ok`:
+
+```bash
+curl http://localhost:3000/health
+```
+
+### 3. Load the extension
 
 1. Open `chrome://extensions` in Chrome.
 2. Turn on **Developer mode**.
@@ -125,13 +160,19 @@ ok
 Whenever files inside `extension/` change, return to `chrome://extensions` and
 click the extension card's reload icon before testing again.
 
-### 3. Test the connection
+### 4. Test the hosted backend connection
+
+The extension uses the deployed Azure App Service backend only:
+
+```text
+https://ai-bias-backend-bghjdsckdshzccg6.germanywestcentral-01.azurewebsites.net
+```
 
 1. Click the extension icon.
 2. Select **Check Backend**.
 3. Confirm the popup says **Backend connected.**
 
-### 4. Test article extraction
+### 5. Test article extraction
 
 1. Open a regular public news article in a browser tab.
 2. Open the extension popup.
@@ -151,9 +192,41 @@ the Chrome Web Store, and new-tab pages. Test with a normal website instead.
 
 | Popup button | What it verifies |
 | --- | --- |
-| **Check Backend** | The local `GET /health` route can be reached. |
-| **Analyze Test Article** | The extension can send a fixed sample article to the backend. |
+| **Check Backend** | The hosted Azure backend's `GET /health` route can be reached. |
 | **Analyze Current Page** | Article extraction and the backend request work together. |
+
+The popup intentionally has no test-article action. Use the PowerShell request
+in the [Backend API](#backend-api) section when you need to test the API without
+opening a browser article.
+
+## Azure deployment
+
+The hosted backend runs as the same Docker image used for local container
+testing:
+
+```text
+backend/Dockerfile
+  -> Docker image
+  -> Docker Hub: shrink1849/ai-bias-backend:v0.1
+  -> Azure App Service Linux container
+```
+
+The Azure Web App routes traffic to port `3000` in the container. Its Docker
+Hub image is public for this prototype; never place API keys, credentials, or
+other secrets in the image.
+
+To publish a later backend change:
+
+1. Build and test the image locally.
+2. Tag it with a new version, for example `v0.2`.
+3. Push that tag to Docker Hub.
+4. Change the Azure Web App's image tag to the new version and restart the Web
+   App.
+5. Test `/health`, then use the extension to confirm the deployed backend works.
+
+You can pause the deployed service from the Web App's **Overview** page with
+**Stop**, and resume it with **Start**. This keeps the deployment configuration
+but makes the public endpoint unavailable while stopped.
 
 ## Backend API
 
@@ -228,11 +301,12 @@ Invoke-RestMethod `
 ```text
 .
 |-- backend/
+|   |-- Dockerfile         Container build instructions
 |   |-- server.js          Local HTTP backend
 |   |-- modelClient.js     Builds the API response
 |   |-- inference.js       Runs the bias model
 |   |-- inference.test.js  Unit tests (npm test)
-|   `-- models/            Trained model files (not in Git)
+|   `-- models/            Trained model files
 |-- extension/
 |   |-- manifest.json      Chrome extension configuration
 |   |-- popup.html         Popup structure
@@ -255,9 +329,9 @@ real model is skipped unless `backend/models/bias-model` is present.
 
 1. Improve extraction quality for pages that do not use standard article HTML.
 2. Add article metadata such as publication, author, URL, and date.
-3. Package the model into a Docker image and deploy the backend to Azure.
-4. Add clear loading, error, and analysis-result visuals.
-5. Deploy the backend over HTTPS before distributing the extension to users.
+3. Test the hosted Azure backend through the extension on multiple articles.
+4. Add request-rate limiting and restrict CORS before sharing the public API.
+5. Add clearer loading, error, and analysis-result visuals.
 
 For users, the final product should require only the published Chrome
 extension. Node.js and the local backend are development tools, not something
