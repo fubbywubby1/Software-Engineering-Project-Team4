@@ -1,3 +1,6 @@
 node_modules/
 .env
 *.log
+
+# Trained model files are too large for Git; see README "Set up the model".
+backend/models/bias-model/onnx/model.onnx

@@ -1,9 +1,7 @@
-// The local server started with `npm start`.
-const HEALTH_URL = "http://localhost:3000/health";
-const ANALYZE_URL = "http://localhost:3000/api/analyze";
+// Endpoint paths are added by endpoint(). The extension uses the deployed API only.
+const BACKEND_BASE_URL = "https://ai-bias-backend-bghjdsckdshzccg6.germanywestcentral-01.azurewebsites.net";
 
 const button = document.querySelector("#check-backend");
-const analyzeButton = document.querySelector("#analyze-test-article");
 const analyzeCurrentPageButton = document.querySelector("#analyze-current-page");
 const status = document.querySelector("#status");
 const analysis = document.querySelector("#analysis");
@@ -11,12 +9,12 @@ const framing = document.querySelector("#framing");
 const articleTitle = document.querySelector("#article-title");
 const characterCount = document.querySelector("#character-count");
 const summary = document.querySelector("#summary");
+const flaggedSection = document.querySelector("#flagged-section");
+const flaggedList = document.querySelector("#flagged-list");
 
-// A temporary article proves the analysis request works before page extraction exists.
-const TEST_ARTICLE = {
-  title: "Test Article",
-  text: "This is a short test article sent from the local Chrome extension.",
-};
+function endpoint(path) {
+  return `${BACKEND_BASE_URL}${path}`;
+}
 
 // Call the backend and show a simple success or failure message in the popup.
 async function checkBackend() {
@@ -24,7 +22,7 @@ async function checkBackend() {
   status.textContent = "Checking backend…";
 
   try {
-    const response = await fetch(HEALTH_URL);
+    const response = await fetch(endpoint("/health"));
 
     if (!response.ok) {
       throw new Error(`Server returned ${response.status}.`);
@@ -35,7 +33,7 @@ async function checkBackend() {
       ? "Backend connected."
       : "Backend returned an unexpected response.";
   } catch {
-    status.textContent = "Could not reach the backend. Start it with npm start.";
+    status.textContent = "Could not reach the hosted backend.";
   } finally {
     button.disabled = false;
   }
@@ -43,49 +41,40 @@ async function checkBackend() {
 
 button.addEventListener("click", checkBackend);
 
-// Send the temporary article to the backend and display its response.
-async function analyzeTestArticle() {
-  analyzeButton.disabled = true;
-  analysis.hidden = true;
-  status.textContent = "Sending test article…";
-
-  try {
-    const response = await fetch(ANALYZE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ article: TEST_ARTICLE }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Server returned ${response.status}.`);
-    }
-
-    const result = await response.json();
-    showAnalysis(result);
-    status.textContent = "Test article analyzed.";
-  } catch {
-    status.textContent = "Could not analyze the test article. Is the backend running?";
-  } finally {
-    analyzeButton.disabled = false;
-  }
-}
-
-analyzeButton.addEventListener("click", analyzeTestArticle);
-
 // This function runs inside the current web page, not inside the extension popup.
 function extractArticleFromPage() {
   const title = document.querySelector('meta[property="og:title"]')?.content
     || document.querySelector("h1")?.innerText
     || document.title;
-  const source = document.querySelector("article") || document.querySelector("main") || document.body;
-  const copy = source.cloneNode(true);
 
-  // Remove common page sections that are not part of the article itself.
-  copy.querySelectorAll("nav, header, footer, aside, form, script, style, noscript").forEach((element) => {
-    element.remove();
-  });
+  // Article text lives in <p> paragraphs. Menus, ads, captions, and story teasers are skipped.
+  const SKIP = "nav, header, footer, aside, form, figure, figcaption, [aria-hidden='true']";
+  function paragraphsIn(root) {
+    return Array.from(root.querySelectorAll("p"))
+      .filter((p) => !p.closest(SKIP))
+      .map((p) => p.innerText.replace(/\s+/g, " ").trim())
+      .filter((text) => text.split(" ").length >= 6);
+  }
+  const length = (paragraphs) => paragraphs.join(" ").length;
 
-  const text = copy.innerText.replace(/\s+/g, " ").trim();
+  // Prefer the article container with the most paragraph text. Pages often have several
+  // small <article> cards, so a container that holds under half the page's text is not the story.
+  const pageParagraphs = paragraphsIn(document.body);
+  let best = [];
+  for (const candidate of document.querySelectorAll("article, main, [itemprop='articleBody']")) {
+    const paragraphs = paragraphsIn(candidate);
+    if (length(paragraphs) > length(best)) {
+      best = paragraphs;
+    }
+  }
+  if (length(best) < length(pageParagraphs) / 2) {
+    best = pageParagraphs;
+  }
+
+  // One paragraph per line, so the backend never merges separate paragraphs into one sentence.
+  const text = best.length > 0
+    ? best.join("\n")
+    : document.body.innerText.replace(/[^\S\n]+/g, " ").replace(/ *\n[\s]*/g, "\n").trim();
   return { title, text };
 }
 
@@ -96,7 +85,7 @@ function showAnalysis(result) {
   framing.textContent =
     overall.score === null
       ? "Not available"
-      : `${overall.score}%`;
+      : `${overall.score} / 100 (${overall.label})`;
 
   articleTitle.textContent =
     result.article.title || "Untitled article";
@@ -105,6 +94,18 @@ function showAnalysis(result) {
     result.article.characterCount;
 
   summary.textContent = result.summary;
+
+  // Show the sentences the model is most confident are biased.
+  const passages = result.results.flaggedPassages || [];
+  flaggedList.replaceChildren(...passages.map((passage) => {
+    const item = document.createElement("li");
+    const probability = document.createElement("span");
+    probability.className = "probability";
+    probability.textContent = ` (${passage.biasScore}% likely biased)`;
+    item.append(passage.text, probability);
+    return item;
+  }));
+  flaggedSection.hidden = passages.length === 0;
 
   analysis.hidden = false;
 }
@@ -137,7 +138,7 @@ async function analyzeCurrentPage() {
     }
 
     status.textContent = "Sending article to backend…";
-    const response = await fetch(ANALYZE_URL, {
+    const response = await fetch(endpoint("/api/analyze"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ article }),

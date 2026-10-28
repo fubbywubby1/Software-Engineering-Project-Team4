@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Article Bias Analyzer",
-  "description": "Checks the local AI Article Bias Analyzer backend.",
+  "description": "Analyzes article wording with a configured AI Article Bias Analyzer backend.",
   "version": "0.1.0",
   "action": {
     "default_popup": "popup.html",
@@ -12,6 +12,6 @@
     "scripting"
   ],
   "host_permissions": [
-    "http://localhost:3000/*"
+    "https://*.azurewebsites.net/*"
   ]
 }

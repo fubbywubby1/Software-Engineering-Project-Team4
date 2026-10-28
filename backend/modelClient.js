@@ -1,34 +1,54 @@
+const { randomUUID } = require("node:crypto");
+const { analyzeText } = require("./inference");
 
-const MODEL_URL = process.env.MODEL_URL;
+const MODEL_INFO = {
+  name: "distilroberta-babe",
+  version: "1.0.0"
+};
+
+// Set MOCK_MODEL=1 to work on the extension without downloading the model.
+const USE_MOCK = process.env.MOCK_MODEL === "1";
 
 // The frontend and server always receive this format.
 async function analyzeArticle(article) {
-  if (!MODEL_URL) {
+  if (USE_MOCK) {
     return getMockAnalysis(article);
   }
 
-  const response = await fetch(`${MODEL_URL}/predict`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
+  const result = await analyzeText(article.text);
+
+  return {
+    schemaVersion: "1.0",
+    analysisId: randomUUID(),
+    status: "completed",
+    model: MODEL_INFO,
+    article: {
+      title: article.title || null,
+      characterCount: article.text.length
     },
-    body: JSON.stringify({
-      text: article.text
-    }),
-    signal: AbortSignal.timeout(30000)
-  });
+    results: {
+      overallBias: {
+        score: result.score,
+        label: result.label,
+        confidence: null
+      },
+      // The BABE model only detects biased wording, not political lean or bias type.
+      politicalLean: null,
+      biasTypes: [],
+      sentenceCount: result.sentenceCount,
+      flaggedCount: result.flaggedCount,
+      flaggedPassages: result.flaggedPassages
+    },
+    summary: buildSummary(result)
+  };
+}
 
-  if (!response.ok) {
-    throw new Error(
-      `Model service returned ${response.status}`
-    );
+function buildSummary(result) {
+  if (result.sentenceCount === 0) {
+    return "No full sentences were found to analyze.";
   }
-
-  const prediction = await response.json();
-
-  // Convert the model's raw output into your
-  // standardized frontend response.
-  return normalizePrediction(prediction, article);
+  return `${result.flaggedCount} of ${result.sentenceCount} sentences use language ` +
+    "the model flags as biased. Results are estimates, not proof of intent.";
 }
 
 function getMockAnalysis(article) {
@@ -47,28 +67,17 @@ function getMockAnalysis(article) {
     results: {
       overallBias: {
         score: 72,
+        label: "High",
         confidence: null
       },
-      politicalLean: {
-        label: "left",
-        confidence: null
-      },
-      biasTypes: [
-        {
-          type: "loaded_language",
-          score: 85
-        }
-      ],
+      politicalLean: null,
+      biasTypes: [],
+      sentenceCount: 0,
+      flaggedCount: 0,
       flaggedPassages: []
     },
     summary: "Mock analysis only. No AI model was used."
   };
-}
-
-function normalizePrediction(prediction, article) {
-  // Define the real model's output mapping here
-  // when its interface is finalized.
-  throw new Error("Model adapter not implemented.");
 }
 
 module.exports = { analyzeArticle };
