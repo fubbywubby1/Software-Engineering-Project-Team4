@@ -40,3 +40,27 @@ button:disabled {
 h2 {
   font-size: 16px;
 }
+
+h3 {
+  margin: 12px 0 4px;
+  font-size: 14px;
+}
+
+#flagged-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+#flagged-list li + li {
+  margin-top: 6px;
+}
+
+.probability {
+  color: #555555;
+  font-size: 12px;
+}
+
+.note {
+  color: #555555;
+  font-size: 12px;
+}

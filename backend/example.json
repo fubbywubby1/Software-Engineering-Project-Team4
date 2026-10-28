@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "1.0",
+  "analysisId": "analysis-001",
+  "status": "completed",
+  "model": {
+    "name": "mock-bias-model",
+    "version": "0.1.0"
+  },
+  "article": {
+    "title": "Example Political Article",
+    "characterCount": 2450
+  },
+  "results": {
+    "overallBias": {
+      "score": 72,
+      "confidence": 0.88
+    },
+    "politicalLean": {
+      "label": "left",
+      "confidence": 0.81
+    },
+    "biasTypes": [
+      {
+        "type": "loaded_language",
+        "score": 85
+      },
+      {
+        "type": "emotional_language",
+        "score": 64
+      },
+      {
+        "type": "selective_framing",
+        "score": null
+      }
+    ],
+    "flaggedPassages": [
+      {
+        "text": "The disastrous policy",
+        "startOffset": 128,
+        "endOffset": 149,
+        "biasScore": 91,
+        "types": ["loaded_language"],
+        "explanation": "Strongly evaluative wording."
+      }
+    ]
+  },
+  "summary": "Example analysis summary."
+}
