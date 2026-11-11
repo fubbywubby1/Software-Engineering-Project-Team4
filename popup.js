@@ -204,23 +204,92 @@ function jumpToSentenceInPage(sentence) {
 }
 
 // Ask the analyzed page to scroll to and highlight one flagged sentence.
-async function jumpToSentence(sentence) {
+async function jumpToSentence(passage) {
   try {
     if (analyzedTabId === null) throw new Error("Analyze a page first.");
-    const [{ result: found }] = await chrome.scripting.executeScript({
-      target: { tabId: analyzedTabId },
-      func: jumpToSentenceInPage,
-      args: [sentence],
-    });
-    if (found) {
-      // Clear any earlier "couldn't find" error.
-      setStatus();
-    } else {
-      setStatus("Couldn't find that sentence on the page.");
+    // The cleaned sentence can differ slightly from the page (for example a removed stray quote),
+    // so also try it without its final punctuation, then the original text.
+    const candidates = [
+      passage.text,
+      passage.text.replace(/[.!?…"”\s]+$/, ""),
+      passage.raw,
+    ].filter((value, index, all) => value && all.indexOf(value) === index);
+
+    let found = false;
+    for (const candidate of candidates) {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: analyzedTabId },
+        func: jumpToSentenceInPage,
+        args: [candidate],
+      });
+      if (result) {
+        found = true;
+        break;
+      }
     }
+    // Clear any earlier "couldn't find" error, or show a new one.
+    setStatus(found ? "" : "Couldn't find that sentence on the page.");
   } catch (error) {
     setStatus(error.message || "Could not reach the page.");
   }
+}
+
+// Tidy a flagged sentence for display: drop stray bullets, dashes, dangling quotes or
+// brackets, footnote markers like [1], and extra spaces at either end, but keep quotes and
+// brackets that are properly paired inside the sentence (for example: “Quoted words,” he said.).
+function cleanSentence(raw) {
+  let s = String(raw).replace(/\s+/g, " ").trim();
+  const isWordChar = (ch) => /[\p{L}\p{N}]/u.test(ch);
+  const isCurrency = (ch) => /\p{Sc}/u.test(ch); // keep the $ in "$5 billion"
+  const count = (ch) => s.split(ch).length - 1;
+
+  // Footnote markers such as [1] or [12] that were collected from the page,
+  // and list numbering such as "1. " or "2) " at the very start.
+  s = s.replace(/(\s*\[\d+\])+$/, "").replace(/^(\[\d+\]\s*)+/, "");
+  s = s.replace(/^\d{1,2}[.)]\s+(?=\p{L})/u, "");
+  // Half-cut footnote markers left at the start, such as "10][32] " from "[10][32]".
+  s = s.replace(/^\d+\](\s*\[\d+\])*\s*/, "");
+  // A trailing ellipsis (" ...", "…") is not part of the sentence itself.
+  s = s.replace(/\s*(\.{2,}|…)\s*$/, "");
+
+  // Leading side: remove anything that is not a letter, a number, or an opening quote/bracket
+  // that has a partner later in the sentence.
+  const closers = { "“": "”", "‘": "’", "(": ")", "[": "]", "«": "»" };
+  while (s.length > 0) {
+    const first = s[0];
+    if (isWordChar(first) || isCurrency(first)) break;
+    const rest = s.slice(1);
+    const paired =
+      (closers[first] && rest.includes(closers[first])) ||
+      ((first === '"' || first === "'") && rest.includes(first));
+    if (paired) break;
+    s = rest.trimStart();
+  }
+
+  // Trailing side: keep letters, numbers, sentence-ending punctuation, and closing
+  // quotes/brackets that have a partner earlier in the sentence. Remove everything else.
+  const openers = { "”": "“", "’": "‘", ")": "(", "]": "[", "»": "«" };
+  while (s.length > 0) {
+    const last = s[s.length - 1];
+    if (isWordChar(last) || ".!?…%".includes(last)) break;
+    const before = s.slice(0, -1);
+    const paired =
+      (openers[last] && before.includes(openers[last])) ||
+      (last === "’" && isWordChar(before.slice(-1))) || // possessive, like "the dogs’"
+      ((last === '"' || last === "'") && count(last) % 2 === 0);
+    if (paired) break;
+    s = before.trimEnd();
+  }
+
+  // A quote mark with no partner sitting just before the final punctuation, as in: like a conservative".
+  const tail = s.match(/(["”])([.!?]+)$/);
+  if (tail) {
+    const quoteCount = tail[1] === '"' ? count('"') : 0;
+    const unpaired = tail[1] === '"' ? quoteCount % 2 === 1 : !s.includes("“");
+    if (unpaired) s = s.slice(0, s.length - tail[0].length) + tail[2];
+  }
+
+  return s;
 }
 
 // Display the shared backend response format for either a test or real page.
@@ -234,18 +303,20 @@ function showAnalysis(result) {
   summary.textContent = result.summary;
 
   // Show the sentences the model is most confident are biased.
-  const passages = result.results.flaggedPassages || [];
+  const passages = (result.results.flaggedPassages || [])
+    .map((passage) => ({ ...passage, raw: passage.text, text: cleanSentence(passage.text) }))
+    .filter((passage) => passage.text.length > 0);
   flaggedList.replaceChildren(...passages.map((passage, index) => {
     const item = document.createElement("li");
     item.style.setProperty("--i", index);
     item.tabIndex = 0;
     item.setAttribute("role", "button");
     item.title = "Jump to this sentence on the page";
-    item.addEventListener("click", () => jumpToSentence(passage.text));
+    item.addEventListener("click", () => jumpToSentence(passage));
     item.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        jumpToSentence(passage.text);
+        jumpToSentence(passage);
       }
     });
 
