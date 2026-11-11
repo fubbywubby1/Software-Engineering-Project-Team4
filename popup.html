@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Article Bias Analyzer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header class="hero">
+        <img class="logo" src="icons/icon128.png" alt="" width="42" height="42" />
+        <h1>Article Analyzer</h1>
+        <button id="backend-status" class="backend-pill" type="button" data-state="checking"
+                title="Checking backend…" aria-label="Backend status: checking. Click to recheck.">
+          <span class="backend-dot" aria-hidden="true"></span>
+          <span id="backend-label">Checking</span>
+        </button>
+      </header>
+
+      <div class="actions">
+        <button id="analyze-current-page" class="primary" type="button">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="analyze-label" class="btn-label">Analyze Current Page</span>
+        </button>
+      </div>
+
+      <p id="status" class="status" aria-live="polite" hidden>
+        <span class="dot" aria-hidden="true"></span>
+        <span id="status-text"></span>
+      </p>
+
+      <section id="loading" hidden aria-live="polite">
+        <div class="loader" aria-hidden="true">
+          <div class="loader-ring"></div>
+          <img class="loader-icon" src="icons/icon128.png" alt="" width="34" height="34" />
+        </div>
+        <p id="loading-title" class="loading-title">Analyzing article…</p>
+        <ol class="steps">
+          <li data-step="read" data-state="active"><span class="step-mark"></span>Reading the page</li>
+          <li data-step="analyze" data-state="pending"><span class="step-mark"></span>Analyzing wording with AI</li>
+        </ol>
+        <div class="skeleton" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+      </section>
+
+      <section id="analysis" hidden>
+        <div class="score-card">
+          <div class="ring">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <circle class="ring-track" cx="50" cy="50" r="42" />
+              <circle id="ring-progress" class="ring-progress" cx="50" cy="50" r="42" />
+            </svg>
+            <div class="ring-text">
+              <span id="score-value">0</span>
+              <span class="ring-max">/ 100</span>
+            </div>
+          </div>
+          <div class="score-info">
+            <span class="eyebrow">Bias score</span>
+            <span id="score-label" class="chip">Low</span>
+            <p id="summary" class="summary"></p>
+          </div>
+        </div>
+
+        <dl class="meta">
+          <div>
+            <dt>Article</dt>
+            <dd id="article-title"></dd>
+          </div>
+        </dl>
+
+        <div id="flagged-section" hidden>
+          <h3>Most biased sentences</h3>
+          <p class="hint">Click a sentence to jump to it on the page.</p>
+          <ol id="flagged-list"></ol>
+        </div>
+
+        <p class="note">Results are estimates from an AI model trained on US political news. They describe the wording, not the author's intent.</p>
+      </section>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

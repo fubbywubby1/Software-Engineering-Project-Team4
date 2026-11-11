@@ -8,21 +8,81 @@
   </head>
   <body>
     <main>
-      <h1>Article Analyzer</h1>
-      <p>Analyze wording in the current article with the hosted backend.</p>
-      <button id="check-backend" type="button">Check Backend</button>
-      <button id="analyze-current-page" type="button">Analyze Current Page</button>
-      <p id="status" aria-live="polite">Not checked yet.</p>
+      <header class="hero">
+        <img class="logo" src="icons/icon128.png" alt="" width="42" height="42" />
+        <div>
+          <h1>Article Analyzer</h1>
+          <p class="subtitle">Spot loaded wording in the article you're reading.</p>
+        </div>
+      </header>
+
+      <div class="actions">
+        <button id="analyze-current-page" class="primary" type="button">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="analyze-label" class="btn-label">Analyze Current Page</span>
+        </button>
+        <button id="check-backend" class="secondary" type="button">
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="btn-label">Check Backend</span>
+        </button>
+      </div>
+
+      <p id="status" class="status" data-state="idle" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="status-text">Not checked yet.</span>
+      </p>
+
+      <section id="loading" hidden aria-live="polite">
+        <div class="loader" aria-hidden="true">
+          <div class="loader-ring"></div>
+          <img class="loader-icon" src="icons/icon128.png" alt="" width="34" height="34" />
+        </div>
+        <p id="loading-title" class="loading-title">Analyzing article…</p>
+        <ol class="steps">
+          <li data-step="read" data-state="active"><span class="step-mark"></span>Reading the page</li>
+          <li data-step="analyze" data-state="pending"><span class="step-mark"></span>Analyzing wording with AI</li>
+        </ol>
+        <div class="progress" aria-hidden="true"><span></span></div>
+        <div class="skeleton" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+      </section>
+
       <section id="analysis" hidden>
-        <h2>Analysis Result</h2>
-        <p><strong>Bias score:</strong> <span id="framing"></span></p>
-        <p><strong>Article:</strong> <span id="article-title"></span></p>
-        <p><strong>Text collected:</strong> <span id="character-count"></span> characters</p>
-        <p id="summary"></p>
+        <div class="score-card">
+          <div class="ring">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <circle class="ring-track" cx="50" cy="50" r="42" />
+              <circle id="ring-progress" class="ring-progress" cx="50" cy="50" r="42" />
+            </svg>
+            <div class="ring-text">
+              <span id="score-value">0</span>
+              <span class="ring-max">/ 100</span>
+            </div>
+          </div>
+          <div class="score-info">
+            <span class="eyebrow">Bias score</span>
+            <span id="score-label" class="chip">Low</span>
+            <p id="summary" class="summary"></p>
+          </div>
+        </div>
+
+        <dl class="meta">
+          <div>
+            <dt>Article</dt>
+            <dd id="article-title"></dd>
+          </div>
+          <div>
+            <dt>Text collected</dt>
+            <dd><span id="character-count"></span> characters</dd>
+          </div>
+        </dl>
+
         <div id="flagged-section" hidden>
           <h3>Most biased sentences</h3>
           <ol id="flagged-list"></ol>
         </div>
+
         <p class="note">Results are estimates from an AI model trained on US political news. They describe the wording, not the author's intent.</p>
       </section>
     </main>

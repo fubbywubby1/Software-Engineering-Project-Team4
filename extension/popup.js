@@ -4,8 +4,14 @@ const BACKEND_BASE_URL = "https://ai-bias-backend-bghjdsckdshzccg6.germanywestce
 const button = document.querySelector("#check-backend");
 const analyzeCurrentPageButton = document.querySelector("#analyze-current-page");
 const status = document.querySelector("#status");
+const statusText = document.querySelector("#status-text");
 const analysis = document.querySelector("#analysis");
-const framing = document.querySelector("#framing");
+const loading = document.querySelector("#loading");
+const loadingTitle = document.querySelector("#loading-title");
+const analyzeLabel = document.querySelector("#analyze-label");
+const scoreValue = document.querySelector("#score-value");
+const scoreLabel = document.querySelector("#score-label");
+const ringProgress = document.querySelector("#ring-progress");
 const articleTitle = document.querySelector("#article-title");
 const characterCount = document.querySelector("#character-count");
 const summary = document.querySelector("#summary");
@@ -16,10 +22,42 @@ function endpoint(path) {
   return `${BACKEND_BASE_URL}${path}`;
 }
 
+// Show a message in the status pill. state: idle | loading | success | error.
+function setStatus(message, state = "idle") {
+  statusText.textContent = message;
+  status.dataset.state = state;
+}
+
+// Show or hide the loading panel, and move its checklist to the given step.
+function showLoading(visible, step = "read") {
+  loading.hidden = !visible;
+  if (!visible) return;
+  const order = ["read", "analyze"];
+  loading.querySelectorAll(".steps li").forEach((item) => {
+    const index = order.indexOf(item.dataset.step);
+    const current = order.indexOf(step);
+    item.dataset.state = index < current ? "done" : index === current ? "active" : "pending";
+  });
+  loadingTitle.textContent = step === "read" ? "Reading the article…" : "Analyzing the wording…";
+}
+
+// Count a number up from zero so the score feels alive.
+function animateNumber(element, target, duration = 1200) {
+  const start = performance.now();
+  function frame(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    element.textContent = Math.round(target * eased);
+    if (t < 1) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
 // Call the backend and show a simple success or failure message in the popup.
 async function checkBackend() {
   button.disabled = true;
-  status.textContent = "Checking backend…";
+  button.classList.add("loading");
+  setStatus("Checking backend…", "loading");
 
   try {
     const response = await fetch(endpoint("/health"));
@@ -29,13 +67,16 @@ async function checkBackend() {
     }
 
     const result = await response.json();
-    status.textContent = result.status === "ok"
-      ? "Backend connected."
-      : "Backend returned an unexpected response.";
+    if (result.status === "ok") {
+      setStatus("Backend connected.", "success");
+    } else {
+      setStatus("Backend returned an unexpected response.", "error");
+    }
   } catch {
-    status.textContent = "Could not reach the hosted backend.";
+    setStatus("Could not reach the hosted backend.", "error");
   } finally {
     button.disabled = false;
+    button.classList.remove("loading");
   }
 }
 
@@ -81,40 +122,68 @@ function extractArticleFromPage() {
 // Display the shared backend response format for either a test or real page.
 function showAnalysis(result) {
   const overall = result.results.overallBias;
+  const hasScore = overall.score !== null;
 
-  framing.textContent =
-    overall.score === null
-      ? "Not available"
-      : `${overall.score} / 100 (${overall.label})`;
-
-  articleTitle.textContent =
-    result.article.title || "Untitled article";
-
-  characterCount.textContent =
-    result.article.characterCount;
-
+  analysis.dataset.level = hasScore ? overall.label : "";
+  scoreLabel.textContent = hasScore ? overall.label : "N/A";
+  articleTitle.textContent = result.article.title || "Untitled article";
+  characterCount.textContent = Number(result.article.characterCount).toLocaleString();
   summary.textContent = result.summary;
 
   // Show the sentences the model is most confident are biased.
   const passages = result.results.flaggedPassages || [];
-  flaggedList.replaceChildren(...passages.map((passage) => {
+  flaggedList.replaceChildren(...passages.map((passage, index) => {
     const item = document.createElement("li");
-    const probability = document.createElement("span");
+    item.style.setProperty("--i", index);
+
+    const text = document.createElement("span");
+    text.textContent = passage.text;
+
+    const probability = document.createElement("div");
     probability.className = "probability";
-    probability.textContent = ` (${passage.biasScore}% likely biased)`;
-    item.append(passage.text, probability);
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const fill = document.createElement("span");
+    fill.dataset.width = `${passage.biasScore}%`;
+    bar.append(fill);
+    const percent = document.createElement("span");
+    percent.textContent = `${passage.biasScore}% likely biased`;
+    probability.append(bar, percent);
+
+    item.append(text, probability);
     return item;
   }));
   flaggedSection.hidden = passages.length === 0;
 
+  // Reset, reveal, then animate the ring, the number, and the bars.
+  const circumference = 2 * Math.PI * 42;
+  ringProgress.style.strokeDashoffset = circumference;
+  scoreValue.textContent = "0";
   analysis.hidden = false;
+  void analysis.offsetWidth; // force a reflow so the transitions replay
+
+  requestAnimationFrame(() => {
+    if (hasScore) {
+      const score = Math.max(0, Math.min(100, overall.score));
+      ringProgress.style.strokeDashoffset = circumference * (1 - score / 100);
+      animateNumber(scoreValue, score);
+    } else {
+      scoreValue.textContent = "–";
+    }
+    flaggedList.querySelectorAll(".bar > span").forEach((fill, index) => {
+      setTimeout(() => { fill.style.width = fill.dataset.width; }, 500 + index * 120);
+    });
+  });
 }
 
 // Extract text from the active tab, then submit it to the same backend endpoint.
 async function analyzeCurrentPage() {
   analyzeCurrentPageButton.disabled = true;
+  analyzeCurrentPageButton.classList.add("loading");
+  analyzeLabel.textContent = "Analyzing…";
   analysis.hidden = true;
-  status.textContent = "Reading current page…";
+  showLoading(true, "read");
+  setStatus("Reading current page…", "loading");
 
   try {
     // This capability becomes available only after Chrome reloads the updated manifest.
@@ -137,7 +206,8 @@ async function analyzeCurrentPage() {
       throw new Error("No readable text was found on this page.");
     }
 
-    status.textContent = "Sending article to backend…";
+    showLoading(true, "analyze");
+    setStatus("Sending article to backend…", "loading");
     const response = await fetch(endpoint("/api/analyze"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -148,12 +218,17 @@ async function analyzeCurrentPage() {
       throw new Error(`Server returned ${response.status}.`);
     }
 
-    showAnalysis(await response.json());
-    status.textContent = "Current page analyzed.";
+    const result = await response.json();
+    showLoading(false);
+    showAnalysis(result);
+    setStatus("Current page analyzed.", "success");
   } catch (error) {
-    status.textContent = error.message || "Could not read the current page.";
+    setStatus(error.message || "Could not read the current page.", "error");
   } finally {
+    showLoading(false);
     analyzeCurrentPageButton.disabled = false;
+    analyzeCurrentPageButton.classList.remove("loading");
+    analyzeLabel.textContent = "Analyze Current Page";
   }
 }
 
