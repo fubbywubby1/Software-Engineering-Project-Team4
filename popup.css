@@ -28,6 +28,21 @@
   box-sizing: border-box;
 }
 
+html {
+  background: var(--bg);
+}
+
+/* Firefox sidebar: fill the panel's width instead of the popup's fixed width. */
+body.sidebar-mode {
+  width: auto;
+  min-width: 260px;
+}
+
+/* The same page opened in a full tab, used to pick a file from the computer. */
+body.tab-mode {
+  margin: 48px auto;
+}
+
 body {
   width: 340px;
   margin: 0;
@@ -40,6 +55,21 @@ body {
 
 main {
   padding: 16px;
+}
+
+/* Popup only: keep the page shorter than the browser's popup limit (about 600px) and scroll
+   inside it. Firefox otherwise resizes and scrolls its popup panel itself, which can close it. */
+body:not(.tab-mode) {
+  overflow: hidden;
+}
+
+body:not(.tab-mode) main {
+  max-height: 580px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 
 p {
@@ -217,12 +247,33 @@ button.loading .spinner {
   gap: 8px;
   margin-top: 12px;
   padding: 8px 12px;
-  border-radius: 999px;
+  border-radius: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--muted);
   font-size: 12px;
   transition: color 0.2s, border-color 0.2s;
+}
+
+.status-action {
+  width: auto;
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border-color: var(--high);
+  background: transparent;
+  color: var(--high);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.status-action[hidden] {
+  display: none;
+}
+
+.status-action:hover {
+  background: var(--high);
+  color: #fff;
 }
 
 .status[hidden] {
@@ -537,6 +588,10 @@ h3 {
   font-size: 11px;
 }
 
+#flagged-list.static li {
+  cursor: default;
+}
+
 #flagged-list li {
   cursor: pointer;
   padding: 10px 12px;
@@ -553,8 +608,8 @@ h3 {
   transition: transform 0.15s var(--ease), box-shadow 0.2s, border-color 0.2s;
 }
 
-#flagged-list li:hover,
-#flagged-list li:focus-visible {
+#flagged-list:not(.static) li:hover,
+#flagged-list:not(.static) li:focus-visible {
   transform: translateX(3px);
   box-shadow: var(--shadow);
   border-color: var(--level);
