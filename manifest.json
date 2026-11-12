@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Article Bias Analyzer",
-  "description": "Analyzes article wording with a configured AI Article Bias Analyzer backend.",
+  "description": "Analyzes article wording with a configured AI Article Bias Analyzer backend. Works in Chrome and Firefox.",
   "version": "0.2.1",
   "action": {
     "default_popup": "popup.html",
@@ -13,17 +13,49 @@
       "128": "icons/icon128.png"
     }
   },
+  "sidebar_action": {
+    "default_panel": "popup.html?sidebar=1",
+    "default_title": "AI Article Bias Analyzer",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "open_at_install": false
+  },
+  "background": {
+    "service_worker": "background.js",
+    "scripts": [
+      "background.js"
+    ]
+  },
   "permissions": [
     "activeTab",
     "scripting"
   ],
   "host_permissions": [
-    "https://*.azurewebsites.net/*"
+    "https://*.azurewebsites.net/*",
+    "file:///*"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
   ],
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ai-article-bias-analyzer@team4",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": [
+          "websiteContent"
+        ]
+      }
+    }
   }
 }

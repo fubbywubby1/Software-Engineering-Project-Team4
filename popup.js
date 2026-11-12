@@ -1,4 +1,12 @@
 // Endpoint paths are added by endpoint(). The extension uses the deployed API only.
+// Firefox exposes the extension APIs as `browser`, Chrome as `chrome`. Both return promises.
+const api = globalThis.browser ?? globalThis.chrome;
+const IS_FIREFOX = api.runtime.getURL("").startsWith("moz-extension:");
+// Opened as popup.html?pick=1 in a full tab, the page analyzes a file chosen from the computer.
+const PICK_MODE = new URLSearchParams(location.search).has("pick");
+// Opened as popup.html?sidebar=1, the page runs in Firefox's sidebar (see background.js).
+const SIDEBAR_MODE = new URLSearchParams(location.search).has("sidebar");
+
 const BACKEND_BASE_URL = "https://ai-bias-backend-bghjdsckdshzccg6.germanywestcentral-01.azurewebsites.net";
 
 const backendButton = document.querySelector("#backend-status");
@@ -6,6 +14,8 @@ const backendLabel = document.querySelector("#backend-label");
 const analyzeCurrentPageButton = document.querySelector("#analyze-current-page");
 const status = document.querySelector("#status");
 const statusText = document.querySelector("#status-text");
+const statusAction = document.querySelector("#status-action");
+const flaggedHint = document.querySelector("#flagged-hint");
 const analysis = document.querySelector("#analysis");
 const loading = document.querySelector("#loading");
 const loadingTitle = document.querySelector("#loading-title");
@@ -20,6 +30,8 @@ const flaggedList = document.querySelector("#flagged-list");
 
 // The tab that was analyzed, so a clicked sentence can be located on that page.
 let analyzedTabId = null;
+// PDFs open in Chrome's built-in viewer, which extensions cannot scroll or highlight.
+let canJump = true;
 
 function endpoint(path) {
   return `${BACKEND_BASE_URL}${path}`;
@@ -27,9 +39,148 @@ function endpoint(path) {
 
 // Errors are the only thing shown in the status line; progress and success are not.
 // Call with no message to clear it.
-function setStatus(message = "") {
+// An optional action adds a small button to the message, such as "Open settings".
+function setStatus(message = "", action = null) {
   statusText.textContent = message;
   status.hidden = !message;
+  statusAction.hidden = !action;
+  statusAction.onclick = null;
+  if (action) {
+    statusAction.textContent = action.label;
+    statusAction.onclick = action.run;
+  }
+}
+
+// An error that comes with a button to fix it.
+class ActionError extends Error {
+  constructor(message, action) {
+    super(message);
+    this.action = action;
+  }
+}
+
+// ---------- Downloaded files (file:// URLs) ----------
+
+const isLocalFile = (url) => /^file:/i.test(url || "");
+const isPdfUrl = (url) => /\.pdf$/i.test((url || "").split(/[?#]/)[0]);
+const fileNameFromUrl = (url) =>
+  decodeURIComponent((url || "").split(/[?#]/)[0].split("/").pop() || "");
+
+// Chrome only lets an extension read downloaded files after the user turns on
+// "Allow access to file URLs" for it, which an extension cannot do for itself.
+async function requireFileAccess() {
+  // Firefox has no such setting (and always reports false), so this check is Chrome-only.
+  if (IS_FIREFOX || !api.extension?.isAllowedFileSchemeAccess) return;
+  const allowed = await api.extension.isAllowedFileSchemeAccess();
+  if (!allowed) {
+    throw new ActionError(
+      "To read downloaded files, turn on \"Allow access to file URLs\" for this extension.",
+      {
+        label: "Open settings",
+        run: () => api.tabs.create({ url: `chrome://extensions/?id=${api.runtime.id}` }),
+      },
+    );
+  }
+}
+
+// Firefox never lets extensions read file:// URLs or look inside its PDF viewer, so the
+// fallback is to choose the file from the computer. A popup closes when a file dialog opens,
+// so the picker runs in a full tab.
+const chooseFileAction = {
+  label: "Choose file",
+  run: async () => {
+    await api.tabs.create({ url: api.runtime.getURL("popup.html?pick=1") });
+    if (!SIDEBAR_MODE) window.close(); // the sidebar stays open
+
+  },
+};
+
+// Read a file's bytes. fetch() cannot load file:// URLs, but XMLHttpRequest can.
+function readBytes(url) {
+  if (!isLocalFile(url)) {
+    return fetch(url).then((response) => {
+      if (!response.ok) throw new Error(`Could not download the PDF (${response.status}).`);
+      return response.arrayBuffer();
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("GET", url);
+    request.responseType = "arraybuffer";
+    request.onload = () => (request.response ? resolve(request.response) : reject(new Error("The file was empty.")));
+    request.onerror = () => reject(new Error("Could not open that file. It may have been moved or deleted."));
+    request.send();
+  });
+}
+
+// Pull the text out of a PDF. Lines are joined back into paragraphs, because the backend
+// treats every line as its own text and would otherwise cut sentences at each line break.
+async function extractArticleFromPdf(url) {
+  return extractArticleFromPdfData(await readBytes(url), fileNameFromUrl(url));
+}
+
+async function extractArticleFromPdfData(data, fileName) {
+  const pdfjs = await import("./lib/pdf.min.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = api.runtime.getURL("lib/pdf.worker.min.mjs");
+
+  // Only text is needed, so skip pdf.js's eval-based font compiler (also blocked by the extension CSP).
+  const pdf = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
+  const paragraphs = [];
+  let current = "";
+  const pushParagraph = () => {
+    const text = current.replace(/\s+/g, " ").trim();
+    if (text) paragraphs.push(text);
+    current = "";
+  };
+  const append = (text) => {
+    // Rejoin words hyphenated across a line break: "govern-" + "ment" -> "government".
+    if (/\p{L}-$/u.test(current) && /^\p{Ll}/u.test(text)) {
+      current = current.slice(0, -1) + text;
+    } else {
+      current += (current && !/\s$/.test(current) ? " " : "") + text;
+    }
+  };
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const { items } = await page.getTextContent();
+    let lastY = null;
+    let lastHeight = 0;
+    for (const item of items) {
+      if (typeof item.str !== "string") continue;
+      const y = item.transform[5];
+      const height = item.height || lastHeight || 10;
+      // A gap of more than about one and a half lines, or a change in font size
+      // (a heading next to body text), starts a new paragraph.
+      const sizeChanged = lastHeight && Math.abs(height - lastHeight) > lastHeight * 0.2;
+      if (lastY !== null && (sizeChanged || Math.abs(lastY - y) > Math.max(height, lastHeight) * 1.6)) {
+        pushParagraph();
+      }
+      if (item.str.trim()) {
+        append(item.str);
+        lastY = y;
+        lastHeight = height;
+      }
+    }
+    pushParagraph(); // page breaks end a paragraph
+    page.cleanup();
+  }
+
+  let title = "";
+  try {
+    const { info } = await pdf.getMetadata();
+    title = (info?.Title || "").trim();
+  } catch {
+    // Metadata is optional.
+  }
+  await pdf.destroy();
+
+  // Same filter as for web pages: very short lines are usually headers, page numbers, or captions.
+  const text = paragraphs.filter((p) => p.split(" ").length >= 6).join("\n");
+  if (!text) {
+    throw new Error("No text was found in this PDF. Scanned PDFs (images of pages) can't be read.");
+  }
+  return { title: title || fileName.replace(/\.pdf$/i, ""), text };
 }
 
 // Show or hide the loading panel, and move its checklist to the given step.
@@ -100,7 +251,9 @@ backendButton.addEventListener("click", checkBackend);
 checkBackend();
 
 // This function runs inside the current web page, not inside the extension popup.
-function extractArticleFromPage() {
+// It can also be given a parsed document, for a saved page chosen from the computer.
+function extractArticleFromPage(doc) {
+  const document = doc || window.document;
   const title = document.querySelector('meta[property="og:title"]')?.content
     || document.querySelector("h1")?.innerText
     || document.title;
@@ -217,7 +370,7 @@ async function jumpToSentence(passage) {
 
     let found = false;
     for (const candidate of candidates) {
-      const [{ result }] = await chrome.scripting.executeScript({
+      const [{ result }] = await api.scripting.executeScript({
         target: { tabId: analyzedTabId },
         func: jumpToSentenceInPage,
         args: [candidate],
@@ -306,19 +459,23 @@ function showAnalysis(result) {
   const passages = (result.results.flaggedPassages || [])
     .map((passage) => ({ ...passage, raw: passage.text, text: cleanSentence(passage.text) }))
     .filter((passage) => passage.text.length > 0);
+  flaggedHint.hidden = !canJump;
+  flaggedList.classList.toggle("static", !canJump);
   flaggedList.replaceChildren(...passages.map((passage, index) => {
     const item = document.createElement("li");
     item.style.setProperty("--i", index);
-    item.tabIndex = 0;
-    item.setAttribute("role", "button");
-    item.title = "Jump to this sentence on the page";
-    item.addEventListener("click", () => jumpToSentence(passage));
-    item.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        jumpToSentence(passage);
-      }
-    });
+    if (canJump) {
+      item.tabIndex = 0;
+      item.setAttribute("role", "button");
+      item.title = "Jump to this sentence on the page";
+      item.addEventListener("click", () => jumpToSentence(passage));
+      item.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          jumpToSentence(passage);
+        }
+      });
+    }
 
     const text = document.createElement("span");
     text.textContent = passage.text;
@@ -360,63 +517,177 @@ function showAnalysis(result) {
   });
 }
 
-// Extract text from the active tab, then submit it to the same backend endpoint.
-async function analyzeCurrentPage() {
+// Turn Chrome's technical errors into something a reader can act on.
+function friendlyError(error) {
+  const message = error?.message || "";
+  if (/Cannot access contents of url "file:|file:\/\/ URL/i.test(message)) {
+    return "To read downloaded files, turn on \"Allow access to file URLs\" for this extension.";
+  }
+  if (/Cannot access a chrome|chrome:\/\/|extensions gallery|Cannot access contents of the page/i.test(message)) {
+    return "Chrome doesn't allow extensions to read this page. Try a regular article or file.";
+  }
+  if (/Missing host permission|about:|addons\.mozilla\.org/i.test(message)) {
+    return "Firefox doesn't allow extensions to read this page. Try a regular article or file.";
+  }
+  return message || "Could not read the current page.";
+}
+
+// Start an analysis: lock the button, show the loading card, and clear old results.
+function beginAnalysis() {
   analyzeCurrentPageButton.disabled = true;
   analyzeCurrentPageButton.classList.add("loading");
   analyzeLabel.textContent = "Analyzing…";
   analysis.hidden = true;
   showLoading(true, "read");
   setStatus();
-  let sentToBackend = false;
+}
 
+function endAnalysis() {
+  showLoading(false);
+  analyzeCurrentPageButton.disabled = false;
+  analyzeCurrentPageButton.classList.remove("loading");
+  analyzeLabel.textContent = PICK_MODE ? "Choose a File to Analyze" : "Analyze Current Page";
+}
+
+// Send an extracted article to the backend and show the result.
+async function sendArticle(article) {
+  if (!article?.text) {
+    throw new Error("No readable text was found on this page.");
+  }
+  showLoading(true, "analyze");
+  let response;
   try {
-    // This capability becomes available only after Chrome reloads the updated manifest.
-    if (!chrome.scripting?.executeScript) {
-      throw new Error("Reload this extension in chrome://extensions, then try again.");
-    }
-
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-
-    if (!tab?.id) {
-      throw new Error("No active tab was found.");
-    }
-    analyzedTabId = tab.id;
-
-    const [{ result: article }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: extractArticleFromPage,
-    });
-
-    if (!article.text) {
-      throw new Error("No readable text was found on this page.");
-    }
-
-    showLoading(true, "analyze");
-    sentToBackend = true;
-    const response = await fetch(endpoint("/api/analyze"), {
+    response = await fetch(endpoint("/api/analyze"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ article }),
     });
+  } catch {
+    checkBackend();
+    throw new Error("Could not reach the hosted backend.");
+  }
+  if (!response.ok) {
+    checkBackend();
+    throw new Error(`Server returned ${response.status}.`);
+  }
+  const result = await response.json();
+  setBackendState("online");
+  showLoading(false);
+  showAnalysis(result);
+}
 
-    if (!response.ok) {
-      throw new Error(`Server returned ${response.status}.`);
+// Read the article from the active tab.
+async function readCurrentTab() {
+  // The sidebar belongs to one window, so use that window's tab.
+  const [tab] = await api.tabs.query(
+    SIDEBAR_MODE ? { active: true, currentWindow: true } : { active: true, lastFocusedWindow: true },
+  );
+  if (!tab?.id) {
+    throw new Error("No active tab was found.");
+  }
+  analyzedTabId = tab.id;
+  const local = isLocalFile(tab.url);
+  const pdf = isPdfUrl(tab.url);
+
+  // Downloaded files open as file:// URLs, which need the user's permission first in Chrome.
+  if (local) {
+    await requireFileAccess();
+  }
+
+  try {
+    if (pdf) {
+      canJump = false;
+      return await extractArticleFromPdf(tab.url);
     }
-
-    const result = await response.json();
-    setBackendState("online");
-    showLoading(false);
-    showAnalysis(result);
+    canJump = true;
+    const [{ result: article }] = await api.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractArticleFromPage,
+    });
+    // Plain .txt files have no title, so fall back to the file name.
+    if (local && article && (!article.title || article.title === tab.url)) {
+      article.title = fileNameFromUrl(tab.url);
+    }
+    return article;
   } catch (error) {
-    setStatus(error.message || "Could not read the current page.");
-    if (sentToBackend) checkBackend();
-  } finally {
-    showLoading(false);
-    analyzeCurrentPageButton.disabled = false;
-    analyzeCurrentPageButton.classList.remove("loading");
-    analyzeLabel.textContent = "Analyze Current Page";
+    // When a downloaded file or a PDF can't be read in place, offer to choose it instead.
+    if (local || (IS_FIREFOX && pdf)) {
+      throw new ActionError(
+        IS_FIREFOX
+          ? "Firefox doesn't let extensions read this file directly. Choose it from your computer instead."
+          : "Couldn't open that file in place. Choose it from your computer instead.",
+        chooseFileAction,
+      );
+    }
+    throw error;
   }
 }
 
-analyzeCurrentPageButton.addEventListener("click", analyzeCurrentPage);
+// Read a file chosen with the file picker.
+async function readChosenFile(file) {
+  canJump = false; // the file isn't open in a tab, so there is nothing to jump to
+  const name = file.name || "";
+  if (/\.pdf$/i.test(name) || file.type === "application/pdf") {
+    return extractArticleFromPdfData(await file.arrayBuffer(), name);
+  }
+  const text = await file.text();
+  if (/\.html?$/i.test(name) || file.type === "text/html") {
+    const doc = new DOMParser().parseFromString(text, "text/html");
+    const article = extractArticleFromPage(doc);
+    if (!article.title) article.title = name.replace(/\.html?$/i, "");
+    return article;
+  }
+  // Plain text: keep paragraphs on their own lines, but rejoin lines wrapped inside a paragraph.
+  const paragraphs = text.replace(/\r/g, "").split(/\n\s*\n/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return { title: name.replace(/\.txt$/i, ""), text: paragraphs.join("\n") };
+}
+
+async function analyze(readArticle) {
+  beginAnalysis();
+  try {
+    await sendArticle(await readArticle());
+  } catch (error) {
+    setStatus(friendlyError(error), error.action || null);
+  } finally {
+    endAnalysis();
+  }
+}
+
+const fileInput = document.querySelector("#file-input");
+
+if (PICK_MODE) {
+  document.body.classList.add("tab-mode");
+  document.title = "Analyze a File – AI Article Bias Analyzer";
+  analyzeLabel.textContent = "Choose a File to Analyze";
+  analyzeCurrentPageButton.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    const [file] = fileInput.files;
+    fileInput.value = ""; // allow choosing the same file again
+    if (file) analyze(() => readChosenFile(file));
+  });
+} else if (SIDEBAR_MODE) {
+  // A popup gets access to the current tab each time it is opened, but the sidebar stays open
+  // across tabs and pages, so it needs permission to read websites. Firefox asks once; the
+  // request must be made straight from the click, before anything else is awaited.
+  document.body.classList.add("sidebar-mode");
+  const requestSiteAccess = () => api.permissions.request({ origins: ["<all_urls>"] });
+  const allowAction = {
+    label: "Allow",
+    run: () => {
+      requestSiteAccess().then((granted) => granted && setStatus());
+    },
+  };
+  analyzeCurrentPageButton.addEventListener("click", () => {
+    const access = requestSiteAccess();
+    analyze(async () => {
+      if (!(await access)) {
+        throw new ActionError("To analyze pages from the sidebar, allow the extension to read websites.", allowAction);
+      }
+      return readCurrentTab();
+    });
+  });
+} else {
+  analyzeCurrentPageButton.addEventListener("click", () => analyze(readCurrentTab));
+}
