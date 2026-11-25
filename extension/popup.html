@@ -19,7 +19,7 @@
       <div class="actions">
         <button id="analyze-current-page" class="primary" type="button">
           <span class="spinner" aria-hidden="true"></span>
-          <span id="analyze-label" class="btn-label">Analyze Current Page</span>
+          <span id="analyze-label" class="btn-label">Analyze Article</span>
         </button>
         <button id="check-backend" class="secondary" type="button">
           <span class="spinner" aria-hidden="true"></span>
@@ -39,7 +39,7 @@
         </div>
         <p id="loading-title" class="loading-title">Analyzing article…</p>
         <ol class="steps">
-          <li data-step="read" data-state="active"><span class="step-mark"></span>Reading the page</li>
+          <li data-step="read" data-state="active"><span class="step-mark"></span>Identifying article text</li>
           <li data-step="analyze" data-state="pending"><span class="step-mark"></span>Analyzing wording with AI</li>
         </ol>
         <div class="progress" aria-hidden="true"><span></span></div>
@@ -85,6 +85,12 @@
 
         <p class="note">Results are estimates from an AI model trained on US political news. They describe the wording, not the author's intent.</p>
       </section>
+
+      <details id="extraction-preview" class="extraction-preview" hidden>
+        <summary>View extracted article text</summary>
+        <p class="preview-caption"><span id="preview-count"></span> characters in the analysis input (headline excluded).</p>
+        <pre id="preview-text" tabindex="0"></pre>
+      </details>
     </main>
     <script src="popup.js"></script>
   </body>

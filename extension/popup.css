@@ -582,3 +582,43 @@ h3 {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* ---------- Article extraction preview ---------- */
+.extraction-preview {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+.extraction-preview[hidden] { display: none; }
+.extraction-preview summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text);
+}
+.extraction-preview summary:focus-visible,
+#preview-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.preview-caption {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+#preview-text {
+  margin: 10px 0 0;
+  padding: 10px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.5;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
